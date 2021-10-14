@@ -1,0 +1,46 @@
+﻿kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: appname
+  labels:
+    app: appname
+    app.kubernetes.io/component: appname
+    app.kubernetes.io/instance: appname
+    app.kubernetes.io/name: dotnet
+    app.kubernetes.io/part-of: appname
+    app.openshift.io/runtime: dotnet
+    app.openshift.io/runtime-version: '3.1'
+spec:
+  strategy:
+    type: RollingUpdate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: appname
+  template:
+    metadata:
+      labels:
+        app: appname
+    spec:
+      containers:
+        - name: appname
+          image: image-registry.openshift-image-registry.svc:5000/my-project/appname:latest
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: CUSTOMVAR_1
+              value: VALUE_1
+            - name: CUSTOMVAR_2
+              value: 'VALUE_2'
+            - name: CUSTOMVAR_3
+              value: >-
+                LARGE_VALUE
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 200m
+              memory: 256Mi
+          imagePullPolicy: IfNotPresent

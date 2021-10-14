@@ -1,0 +1,22 @@
+<?xml version='1.1' encoding='UTF-8'?>
+<org.jenkinsci.plugins.workflow.libs.GlobalLibraries plugin="workflow-cps-global-lib@2.16">
+  <libraries>
+    <org.jenkinsci.plugins.workflow.libs.LibraryConfiguration>
+      <name>openshift-pipeline-library</name>
+      <retriever class="org.jenkinsci.plugins.workflow.libs.SCMSourceRetriever">
+        <scm class="jenkins.plugins.git.GitSCMSource" plugin="git@3.12.2">
+          <id>9adacf82-8fcc-47ee-8a39-4cc023900394</id>
+          <remote>git@github.com:lozanotux/openshift-cicd-pipelines.git</remote>
+          <credentialsId>cicd-repository-credentials</credentialsId>
+          <traits>
+            <jenkins.plugins.git.traits.BranchDiscoveryTrait/>
+          </traits>
+        </scm>
+      </retriever>
+      <defaultVersion>main</defaultVersion>
+      <implicit>true</implicit>
+      <allowVersionOverride>true</allowVersionOverride>
+      <includeInChangesets>true</includeInChangesets>
+    </org.jenkinsci.plugins.workflow.libs.LibraryConfiguration>
+  </libraries>
+</org.jenkinsci.plugins.workflow.libs.GlobalLibraries>

@@ -1,0 +1,22 @@
+﻿kind: Service
+apiVersion: v1
+metadata:
+  name: appname
+  labels:
+    app: appname
+    app.kubernetes.io/component: appname
+    app.kubernetes.io/instance: appname
+    app.kubernetes.io/name: dotnet
+    app.kubernetes.io/part-of: appname
+    app.openshift.io/runtime: dotnet
+    app.openshift.io/runtime-version: '3.1'
+spec:
+  ports:
+    - name: 8080-tcp
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+  selector:
+    app: appname
+  type: ClusterIP
+  sessionAffinity: None

@@ -1,0 +1,6 @@
+git:4.2.2
+openshift-sync:1.0.45
+openshift-client:1.0.32
+openshift-login:1.0.23
+workflow-cps:2.80
+workflow-cps-global-lib:2.16

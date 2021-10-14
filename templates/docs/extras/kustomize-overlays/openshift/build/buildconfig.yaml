@@ -1,0 +1,44 @@
+﻿kind: BuildConfig
+apiVersion: build.openshift.io/v1
+metadata:
+  name: appname
+  labels:
+    app: appname
+    app.kubernetes.io/component: appname
+    app.kubernetes.io/instance: appname
+    app.kubernetes.io/name: dotnet
+    app.kubernetes.io/part-of: appname
+    app.openshift.io/runtime: dotnet
+    app.openshift.io/runtime-version: '3.1'
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: 'appname:latest'
+  strategy:
+    type: Source
+    sourceStrategy:
+      from:
+        kind: ImageStreamTag
+        namespace: openshift
+        name: 'dotnet:3.1'
+      env:
+        - name: GIT_SSL_NO_VERIFY
+          value: 'true'
+        - name: DOTNET_SSL_DIRS
+          value: /etc/pki/tls/certs
+  postCommit: {}
+  source:
+    type: Git
+    git:
+      uri: >-
+        https://github.com/user/appname.git
+      ref: develop
+    contextDir: /DotNetContextDir
+    sourceSecret:
+      name: ca-name
+    secrets:
+      - secret:
+          name: ca-name
+        destinationDir: /etc/pki/tls/certs
+  runPolicy: Serial

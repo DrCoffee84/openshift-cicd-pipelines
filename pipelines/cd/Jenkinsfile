@@ -1,0 +1,188 @@
+pipeline {
+    agent any
+    options {
+        skipDefaultCheckout()
+        disableConcurrentBuilds()
+    }
+    stages {
+        stage("Version?") {
+          steps {
+            script {
+              env.TAG_NAME = input (id: 'tag', message: 'What configuration branch/tag will I get?',
+                                  parameters: [string(defaultValue: 'master', name: 'Branch')]);
+            }
+          }
+        }
+        stage("Checkout") {
+          steps {
+            //gatherParameters(parameters)
+            echo """
+            APP_GIT_REPO: ${env.APP_GIT_REPO}
+            APP_GIT_BRANCH: ${env.APP_GIT_BRANCH}
+            APP_GIT_SECRET: ${env.JENKINS_PROJECT_NAME}-${env.APP_GIT_SECRET}
+            """
+            gitCheckout(
+              repo: env.APP_GIT_REPO,
+              branch: env.APP_GIT_BRANCH,
+              secret: "${env.JENKINS_PROJECT_NAME}-${env.APP_GIT_SECRET}")
+            sh "ls -la ${pwd()}"
+          }
+        }
+
+        stage("Promote Image") {
+            steps {
+                // The credentials are rewritten to incorporate the project name
+                // All credentials are created in the project where Jenkins resides
+                script {
+                    env.SRC_REGISTRY_CREDENTIALS = "${env.JENKINS_PROJECT_NAME}-${env.SRC_REGISTRY_CREDENTIALS}"
+                    env.DST_REGISTRY_CREDENTIALS = "${env.JENKINS_PROJECT_NAME}-${env.DST_REGISTRY_CREDENTIALS}"
+
+                    // To Do: in the future the images may be separated by projects
+                    //env.SRC_IMAGE_URL="${env.SRC_REGISTRY_URL}/${env.SRC_REGISTRY_PROJECT}/${env.IMAGE_NAME}:${env.TAG_NAME}"
+                    //env.DST_IMAGE_URL="${env.DST_REGISTRY_URL}/${env.DST_REGISTRY_PROJECT}/${env.IMAGE_NAME}:${env.TAG_NAME}"
+                    env.SRC_IMAGE_URL="${env.SRC_REGISTRY_URL}/${env.IMAGE_NAME}:${env.TAG_NAME}"
+                    env.DST_IMAGE_URL="${env.DST_REGISTRY_URL}/${env.IMAGE_NAME}:${env.TAG_NAME}"
+                }
+
+                echo """
+                env.IMAGE_NAME: ${env.IMAGE_NAME}
+                env.TAG_NAME: ${env.TAG_NAME}
+
+                env.SRC_REGISTRY_URL: ${env.SRC_REGISTRY_URL}
+                env.SRC_REGISTRY_CREDENTIALS: ${env.SRC_REGISTRY_CREDENTIALS}
+                env.SRC_REGISTRY_PROJECT: ${env.SRC_REGISTRY_PROJECT}
+                env.DST_REGISTRY_URL: ${env.DST_REGISTRY_URL}
+                env.DST_REGISTRY_CREDENTIALS: ${env.DST_REGISTRY_CREDENTIALS}
+                env.DST_REGISTRY_PROJECT: ${env.DST_REGISTRY_PROJECT}
+
+                env.JENKINS_PROJECT_NAME: ${env.JENKINS_PROJECT_NAME}
+                env.SRC_IMAGE_URL: "${env.SRC_IMAGE_URL}"
+                env.DST_IMAGE_URL: "${env.DST_IMAGE_URL}"
+                """
+
+                withDockerRegistry([credentialsId: env.SRC_REGISTRY_CREDENTIALS, url: "http://${env.SRC_REGISTRY_URL}"]) {
+                    withDockerRegistry([credentialsId: env.DST_REGISTRY_CREDENTIALS, url: "http://${env.DST_REGISTRY_URL}"]) {
+                        script {
+                            openshift.withCluster {
+                                openshift.raw("image mirror", "--insecure",
+                                  "${SRC_IMAGE_URL}",
+                                  "${DST_IMAGE_URL}")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stage("Apply Template Prod") {
+            steps {
+                // The credentials are rewritten to incorporate the project name
+                // All credentials are created in the project where Jenkins resides
+                script {
+                    env.LOCAL_CLUSTER_CREDENTIALS = "${env.JENKINS_PROJECT_NAME}-${env.LOCAL_CLUSTER_CREDENTIALS}"
+                    env.REMOTO_CLUSTER_CREDENTIALS = "${env.JENKINS_PROJECT_NAME}-${env.REMOTO_CLUSTER_CREDENTIALS}"
+                }
+
+                echo """
+                remoteCluster: env.REMOTO_CLUSTER_URL ${env.REMOTO_CLUSTER_URL}
+                project: env.PROJECT_NAME ${env.PROJECT_NAME},
+                application: env.APP_NAME ${env.APP_NAME},
+                template: env.APP_TEMPLATE ${env.APP_TEMPLATE},
+                parameters: env.APP_TEMPLATE_PARAMETERS_PROD ${env.APP_TEMPLATE_PARAMETERS_PROD},
+                replaceConfig: env.APP_REPLACE_CONFIG_PROD ${env.APP_REPLACE_CONFIG_PROD},
+                deploymentPatch: env.APP_DEPLOYMENT_PATCH_PROD ${env.APP_DEPLOYMENT_PATCH_PROD},
+                cm: env.APP_CONFIGMAP_DIR_LOCAL ${env.APP_CONFIGMAP_DIR_LOCAL}
+                cm: env.APP_CONFIGMAP_DIR_REMOTO ${env.APP_CONFIGMAP_DIR_REMOTO}
+                local cluser credentialas: env.LOCAL_CLUSTER_CREDENTIALS ${env.LOCAL_CLUSTER_CREDENTIALS}
+                remote cluster credentials: env.REMOTO_CLUSTER_CREDENTIALS ${env.REMOTO_CLUSTER_CREDENTIALS}
+                """
+
+                echo "create configmap cluster local"
+                createConfigmapFromDir(
+                  project: env.PROJECT_NAME,
+                  dir: env.APP_CONFIGMAP_DIR_LOCAL,
+                  configMap: "cm-${env.APP_NAME}"
+                )
+
+                echo "apply template cluster local"
+                applyTemplate(
+                  project: env.PROJECT_NAME,
+                  application: env.APP_NAME,
+                  template: env.APP_TEMPLATE,
+                  parameters: env.APP_TEMPLATE_PARAMETERS_PROD,
+                  replaceConfig: env.APP_REPLACE_CONFIG_PROD,
+                  deploymentPatch: env.APP_DEPLOYMENT_PATCH_PROD)
+
+                echo "I update local image-stream"
+                importImage(
+                  project: env.PROJECT_NAME,
+                  repoUrl: env.DST_REGISTRY_URL,
+                  imageName: env.APP_NAME,
+                  externalImageName: env.IMAGE_NAME,
+                  tag: env.TAG_NAME
+                )
+
+                echo "create configmap cluster remote"
+                createConfigmapFromDir(
+                  clusterUrl: env.REMOTO_CLUSTER_URL,
+                  credentialsId: env.REMOTO_CLUSTER_CREDENTIALS,
+                  project: env.PROJECT_NAME,
+                  dir: env.APP_CONFIGMAP_DIR_REMOTO,
+                  configMap: "cm-${env.APP_NAME}"
+                )
+
+                echo "apply template cluster remote"
+                applyTemplate(
+                  clusterUrl: env.REMOTO_CLUSTER_URL,
+                  credentialsId: env.REMOTO_CLUSTER_CREDENTIALS,
+                  project: env.PROJECT_NAME,
+                  application: env.APP_NAME,
+                  template: env.APP_TEMPLATE,
+                  parameters: env.APP_TEMPLATE_PARAMETERS_PROD,
+                  replaceConfig: env.APP_REPLACE_CONFIG_PROD,
+                  deploymentPatch: env.APP_DEPLOYMENT_PATCH_PROD)
+
+                echo "I update image-stream remote"
+                importImage(
+                  clusterUrl: env.REMOTO_CLUSTER_URL,
+                  credentialsId: env.REMOTO_CLUSTER_CREDENTIALS,
+                  project: env.PROJECT_NAME,
+                  repoUrl: env.DST_REGISTRY_URL,
+                  imageName: env.APP_NAME,
+                  externalImageName: env.IMAGE_NAME,
+                  tag: env.TAG_NAME
+                )
+
+            }
+        }
+        stage("Deploy Prod") {
+            steps {
+                echo """
+                project: env.PROJECT_NAME ${env.PROJECT_NAME},
+                application: env.APP_NAME ${env.APP_NAME},
+                image: env.IMAGE_NAME ${env.IMAGE_NAME},
+                tag: env.TAG_NAME ${env.TAG_NAME},
+                remoteCluster: env.REMOTO_CLUSTER_URL ${env.REMOTO_CLUSTER_URL}
+                remote cluster credentials: env.REMOTO_CLUSTER_CREDENTIALS ${env.REMOTO_CLUSTER_CREDENTIALS}
+                """
+
+                // First in local production
+                echo "apply template cluster local"
+                deployImage(project: env.PROJECT_NAME,
+                    application: env.APP_NAME,
+                    image: env.APP_NAME,
+                    tag: env.TAG_NAME)
+
+                // Then in remote production
+                echo "apply template cluster remote"
+                deployImage(
+                    clusterUrl: env.REMOTO_CLUSTER_URL,
+                    credentialsId: env.REMOTO_CLUSTER_CREDENTIALS,
+                    project: env.PROJECT_NAME,
+                    application: env.APP_NAME,
+                    image: env.APP_NAME,
+                    tag: env.TAG_NAME)
+            }
+        }
+    }
+}

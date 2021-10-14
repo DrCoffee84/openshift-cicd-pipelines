@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: BuildConfig
+metadata:
+  name: skopeo
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: skopeo:latest
+  runPolicy: Serial
+  type: Docker
+  source:
+    dockerfile: |-
+      FROM registry.redhat.io/openshift4/ose-jenkins-agent-base
+
+      USER root
+
+      RUN export http_proxy="http://url:80" && \
+          export https_proxy="http://url:80" && \
+          curl -L -o /etc/yum.repos.d/devel:kubic:libcontainers:stable.repo https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable/CentOS_8/devel:kubic:libcontainers:stable.repo && \
+          dnf -y install skopeo
+
+      USER 1001
+  strategy:
+    dockerStrategy:
+      from:
+        kind: ImageStreamTag
+        name: ose-jenkins-agent-base:latest

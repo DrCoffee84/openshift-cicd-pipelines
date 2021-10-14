@@ -1,0 +1,80 @@
+pipeline {
+  agent any
+  options {
+    skipDefaultCheckout()
+    disableConcurrentBuilds()
+  }
+
+  environment {
+    // Secret of access to git with the configuration of the apps
+    APP_GIT_SECRET = "${env.DEV_PROJECT}-git-access"
+    
+    // Pass outside the pipeline
+    ENV = 'dev'
+    TAG_NAME = 'latest'
+    REGISTRY = 'image-registry.openshift-image-registry.svc:5000'
+    
+    
+    // Functional
+    APP_OPENSHIFT_DIR = "./openshift"
+    APP_OPENSHIFT_BUILD = "${APP_OPENSHIFT_DIR}/build"
+    APP_OPENSHIFT_OVERLAY = "${APP_OPENSHIFT_DIR}/overlays/${ENV}"
+
+  }
+
+  stages {
+    stage("Checkout") {
+      steps {
+        echo """
+        APP_GIT_REPO: ${env.APP_GIT_REPO}
+        APP_GIT_BRANCH: ${env.APP_GIT_BRANCH}
+        APP_GIT_SECRET: ${env.APP_GIT_SECRET}
+        """
+        gitCheckout(
+          repo: env.APP_GIT_REPO,
+          branch: env.APP_GIT_BRANCH,
+          secret: "${env.APP_GIT_SECRET}")
+        sh "ls -la ${pwd()}"
+      }
+    }
+    stage("Build") {
+      steps {
+        echo """
+        - Build Stage
+        project: env.DEV_PROJECT ${env.DEV_PROJECT},
+        application: env.APP_NAME ${env.APP_NAME},
+        """
+        configBuild(
+            project: env.DEV_PROJECT,
+        )
+        buildImage(
+            project: env.DEV_PROJECT,
+            application: env.APP_NAME
+        )
+      }
+    }
+    stage("Apply Kustomize") {
+      steps {
+        echo """
+        kustomizeDir: ${env.APP_OPENSHIFT_OVERLAY}
+        """
+        sh "ls -la ${env.APP_OPENSHIFT_OVERLAY}"
+        applyKustomize(
+            project: env.DEV_PROJECT,
+            kustomizeDir: env.APP_OPENSHIFT_OVERLAY
+        )
+      }
+    }
+    stage("Deploy DEV") {
+      steps {
+        // For a DeploymentConfig use deployImageStream()
+        deployImage(
+          project: env.DEV_PROJECT,
+          application: env.APP_NAME,
+          image: "${REGISTRY}/${env.DEV_PROJECT}/${env.APP_NAME}",
+          tag: env.TAG_NAME
+        )
+      }
+    }
+  }
+}

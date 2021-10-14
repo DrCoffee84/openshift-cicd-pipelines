@@ -1,0 +1,100 @@
+pipeline {
+  agent any
+  options {
+    skipDefaultCheckout()
+    disableConcurrentBuilds()
+  }
+
+  environment {
+    // All credentials are created in the project where Jenkins resides
+    JENKINS_PROJECT_NAME = 'custom-cicd'
+
+    // Secret access to git with the configuration of the apps
+    APP_GIT_SECRET = "${JENKINS_PROJECT_NAME}-custom-config-credentials"
+
+  }
+
+  stages {
+    stage("Version?") {
+      steps {
+        script {
+          env.TAG_NAME = input (id: 'tag', message: 'What configuration branch/tag will I get?',
+                              parameters: [string(defaultValue: 'master', name: 'Branch')]);
+        }
+      }
+    }
+    stage("Checkout") {
+      steps {
+        //gatherParameters(parameters)
+        echo """
+        APP_GIT_REPO: ${env.APP_GIT_REPO}
+        APP_GIT_BRANCH: ${env.APP_GIT_BRANCH}
+        APP_GIT_SECRET: ${env.APP_GIT_SECRET}
+        """
+        gitCheckout(
+          repo: env.APP_GIT_REPO,
+          branch: env.APP_GIT_BRANCH,
+          secret: "${env.APP_GIT_SECRET}")
+        sh "ls -la ${pwd()}"
+      }
+    }
+    stage("Apply Template") {
+      steps {
+        echo """
+        project: env.DEV_PROJECT ${env.DEV_PROJECT},
+        application: env.APP_NAME ${env.APP_NAME},
+        template: env.APP_TEMPLATE ${env.APP_TEMPLATE},
+        parameters: env.APP_TEMPLATE_PARAMETERS_DEV ${env.APP_TEMPLATE_PARAMETERS_DEV},
+        replaceConfig: env.APP_REPLACE_CONFIG_DEV ${env.APP_REPLACE_CONFIG_DEV},
+        deploymentPatch: env.APP_DEPLOYMENT_PATCH_DEV ${env.APP_DEPLOYMENT_PATCH_DEV},
+        """
+        /*
+         * dir: It must be a string that ends in / representing a directory,
+         * otherwise it assumes that it is a file.
+         */
+        createConfigmapFromDir(
+          project: env.DEV_PROJECT,
+          dir: env.APP_CONFIGMAP_DIR,
+          configMap: "cm-${env.APP_NAME}"
+        )
+        applyTemplate(
+          project: env.DEV_PROJECT,
+          application: env.APP_NAME,
+          template: env.APP_TEMPLATE,
+          parameters: env.APP_TEMPLATE_PARAMETERS_DEV,
+          replaceConfig: env.APP_REPLACE_CONFIG_DEV,
+          deploymentPatch: env.APP_DEPLOYMENT_PATCH_DEV,
+          createBuildObjects: true)
+      }
+    }
+    stage("Import Image") {
+      steps {
+        echo """
+        project: env.DEV_PROJECT ${env.DEV_PROJECT},
+        repoUrl: env.IMAGE_REPO_URL ${env.IMAGE_REPO_URL},
+        imageName: env.IMAGE_NAME ${env.IMAGE_NAME},
+        tag: env.TAG_NAME ${env.TAG_NAME}
+        """
+        // fetch the Nexus image in IMAGE_REPO_URL and update it in ImageStream APP_NAME inside DEV_PROJECT
+        // IMAGE_REPO_URL/IMAGE_NAME:TAG_NAME --> local-registry//DEV_PROJECT/APP_NAME:TAG_NAME
+        importImage(
+          project: env.DEV_PROJECT,
+          repoUrl: env.IMAGE_REPO_URL,
+          imageName: env.APP_NAME,
+          externalImageName: env.IMAGE_NAME,
+          tag: env.TAG_NAME
+        )
+      }
+    }
+    stage("Deploy DEV") {
+      steps {
+        // The dc/APP_NAME is updated by modifying the image to point to the imagestream APP_AME: TAG_NAME
+        deployImage(
+          project: env.DEV_PROJECT,
+          application: env.APP_NAME,
+          image: env.APP_NAME,
+          tag: env.TAG_NAME)
+      }
+    }
+  }
+}
